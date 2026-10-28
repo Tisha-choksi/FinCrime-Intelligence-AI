@@ -1,0 +1,70 @@
+# Local development only. See readme.md §9 and §10 before any customer deployment
+# (HTTPS, identity-provider integration, network segmentation, secret management).
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-fincrime}
+      POSTGRES_USER: ${POSTGRES_APP_USER:-app_rw}
+      POSTGRES_PASSWORD: ${POSTGRES_APP_PASSWORD:?set in .env}
+      POSTGRES_N8N_USER: ${POSTGRES_N8N_USER:-n8n_internal}
+      POSTGRES_N8N_PASSWORD: ${POSTGRES_N8N_PASSWORD:?set in .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-55432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migrations:/migrations:ro
+      - ./infra/docker/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  n8n:
+    image: n8nio/n8n:1.70.3
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: ${POSTGRES_DB:-fincrime}
+      DB_POSTGRESDB_USER: ${POSTGRES_N8N_USER:-n8n_internal}
+      DB_POSTGRESDB_PASSWORD: ${POSTGRES_N8N_PASSWORD:?set in .env}
+      DB_POSTGRESDB_SCHEMA: n8n
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?set in .env}
+      N8N_HOST: ${N8N_HOST:-localhost}
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://${N8N_HOST:-localhost}:5678/
+      GENERIC_TIMEZONE: UTC
+    ports:
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n/workflows:/workflows:ro
+      - ./n8n/subworkflows:/subworkflows:ro
+
+  # api:
+  #   TODO: uncomment once services/api has a Dockerfile.
+  #   build: ./services/api
+  #   depends_on: [postgres, redis]
+  #   environment:
+  #     - POSTGRES_HOST=postgres
+  #     - REDIS_HOST=redis
+  #   ports:
+  #     - "127.0.0.1:8000:8000"
+
+volumes:
+  postgres_data:
+  n8n_data:
