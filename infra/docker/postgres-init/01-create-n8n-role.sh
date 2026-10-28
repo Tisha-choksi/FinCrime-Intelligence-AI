@@ -16,6 +16,8 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     END
     \$\$;
 
-    GRANT CONNECT ON DATABASE "${POSTGRES_DB}" TO "${POSTGRES_N8N_USER}";
+    -- Postgres 15+ restricts CREATE/TEMP on a database to its owner by default;
+    -- n8n's TypeORM migrations need both to run (schema checks, temp tables).
+    GRANT CONNECT, CREATE, TEMPORARY ON DATABASE "${POSTGRES_DB}" TO "${POSTGRES_N8N_USER}";
     CREATE SCHEMA IF NOT EXISTS n8n AUTHORIZATION "${POSTGRES_N8N_USER}";
 EOSQL
