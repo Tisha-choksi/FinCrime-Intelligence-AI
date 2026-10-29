@@ -185,11 +185,15 @@ To keep scope honest against readme.md's own caveats:
 ## 8. Pre-production security backlog (database roles)
 
 Tracked in [`docs/pre-production-security-todo.md`](docs/pre-production-security-todo.md).
-The local Postgres/n8n stack works and is schema-isolated, but `app_rw` is
-currently a Postgres superuser and `n8n_internal`'s grant is database-wide
-rather than schema-scoped. Do not claim production-ready database isolation
-until that backlog is resolved and re-verified. Must be closed out before
-Phase 7 (§4) release readiness, and ideally before Phase 1 exit.
+`services/api` now connects as `app_runtime`, a non-superuser role owning
+only its own `app` schema (verified isolated from `n8n` and `public`) —
+but `app_rw` (bootstrap role) is still a superuser, there's no separate
+migration role yet, `app_audit_ro` doesn't exist, and `n8n_internal`'s grant
+remains database-wide by deliberate decision (not worth the risk to a
+working n8n install before an application existed to protect). Do not
+claim production-ready database isolation until that backlog is resolved
+and re-verified. Must be closed out before Phase 7 (§4) release readiness,
+and ideally before Phase 1 exit.
 
 ---
 

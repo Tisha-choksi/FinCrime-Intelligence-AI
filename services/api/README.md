@@ -1,20 +1,41 @@
 # services/api — FastAPI control plane
 
-Skeleton only: config, DB connectivity, health checks, tests. No business
-endpoints, no migrations yet — see `plan.md` §2 for what comes next.
+```
+app/
+├── main.py              # FastAPI app, router wiring
+├── core/
+│   ├── config.py        # env-driven settings
+│   ├── db.py            # async engine/session (connects as app_runtime)
+│   └── security.py      # placeholder service-token auth (not OIDC yet)
+├── api/v1/
+│   ├── health.py        # GET /api/v1/health
+│   └── transactions.py  # POST /api/v1/transactions/import
+├── models/               # SQLAlchemy ORM, schema "app"
+├── schemas/              # Pydantic request/response models
+├── repositories/         # DB access, one per aggregate
+└── services/             # ingestion, MON-011 monitoring, audit
+migrations/                # Alembic, schema-scoped to "app"
+tests/
+```
 
-## Run via Docker Compose (recommended)
+## Database role
+
+This service connects as **`app_runtime`**, a non-superuser Postgres role
+that owns exactly one schema (`app`) and nothing else — it cannot read or
+write `public` or n8n's `n8n` schema, and cannot create new schemas. It is
+*not* the bootstrap role (`app_rw`, still a superuser for now — see
+[`docs/pre-production-security-todo.md`](../../docs/pre-production-security-todo.md)
+for the remaining role-hardening backlog). Migrations run as `app_runtime`
+too, since it owns the schema it's migrating.
+
+## Run via Docker Compose
 
 From the repo root:
 
 ```sh
 docker compose up -d --build api
-curl http://localhost:8000/health/live
-curl http://localhost:8000/health/ready
+curl http://localhost:${API_HOST_PORT:-8000}/api/v1/health
 ```
-
-`/health/ready` opens a real connection to Postgres as `app_rw` and runs
-`SELECT 1`. It does not depend on any table existing yet.
 
 ## Run locally without Docker
 
@@ -24,15 +45,24 @@ python -m venv .venv
 . .venv/Scripts/activate   # or source .venv/bin/activate on macOS/Linux
 pip install -r requirements-dev.txt
 
-# needs POSTGRES_APP_PASSWORD at minimum; the rest default to the
-# docker-compose values. If Postgres is reachable at localhost:55432
-# (the host-mapped port from .env), override POSTGRES_HOST/POSTGRES_PORT:
-export POSTGRES_APP_PASSWORD=<value from ../../.env>
-export POSTGRES_HOST=localhost
-export POSTGRES_PORT=55432
+export PYTHONPATH="$PWD"
+export POSTGRES_HOST=localhost POSTGRES_PORT=55432
+export POSTGRES_APP_RUNTIME_PASSWORD=<value from ../../.env>
+export N8N_API_SERVICE_TOKEN=<value from ../../.env>
 
 uvicorn app.main:app --reload --port 8000
 ```
+
+## Migrations
+
+```sh
+alembic revision --autogenerate -m "describe the change"
+alembic upgrade head
+```
+
+`migrations/env.py` scopes autogenerate/reflection to the `app` schema only
+(`include_name`) — `app_runtime` cannot read other schemas, and even if it
+could, this service must never create or alter anything outside `app`.
 
 ## Tests
 
@@ -40,13 +70,18 @@ uvicorn app.main:app --reload --port 8000
 pytest
 ```
 
-Tests never touch a real database — `/health/ready`'s DB dependency is
-overridden with a fake session, so `pytest` runs with no Postgres required.
+`test_health.py` is a pure unit test (fake DB dependency, no Postgres
+needed). `test_transactions.py` is a real integration test against the
+local Postgres (via `app_runtime`) covering valid import, alert creation
+(`MON-011`), duplicate idempotency, input validation, missing auth, and
+atomic rollback + safe retry on a mid-batch failure. These are skipped
+automatically if no local Postgres is reachable.
 
 ## Known gaps (tracked, not fixed here)
 
-The DB role this service connects as (`app_rw`) is currently a Postgres
-superuser, and `n8n_internal`'s grant is broader than strictly necessary.
-See [`docs/pre-production-security-todo.md`](../../docs/pre-production-security-todo.md).
-This service must not be described as having production-ready database
+`app_rw` (used only for bootstrap/migrations of other roles, not by this
+service) is still a Postgres superuser, there's no separate migration role
+distinct from it yet, and `app_audit_ro` doesn't exist yet. See
+[`docs/pre-production-security-todo.md`](../../docs/pre-production-security-todo.md).
+Do not describe this service as having production-ready database
 isolation until that backlog is resolved.

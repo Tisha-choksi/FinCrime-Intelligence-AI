@@ -81,18 +81,32 @@ yet created.
 
 ## 4. Verify role ownership, schema grants, migrations, and clean-state startup
 
-Once items 1–3 land:
+Done for `app_runtime` specifically (`\du+`, `\dn+`, `pg_tables` ownership
+checks against the live `fincrime` database — see `services/api/README.md`
+and this session's verification: 6 tables in `app`, all owned by
+`app_runtime`; 32 tables in `n8n` and 0 in `public`, untouched).
 
-- Re-run the same read-only verification steps used to check the current
-  setup (`\l+`, `\du+`, `\dn+`, table ownership queries) against the new
-  role arrangement.
+Still open, once items 1 and 2's remaining parts land:
+
+- Re-run the same checks against whatever bootstrap/migration-role split
+  comes out of item 2.
 - Confirm a full `docker compose down -v` + `docker compose up` cycle
-  succeeds from an empty volume — the init script and any migrations must
-  both work against a genuinely fresh database, not just the
-  already-initialized one currently running.
-- Confirm `services/api`'s `/health/ready` and n8n's own startup both still
-  succeed end-to-end under the new, narrower roles.
+  succeeds from an empty volume — `01-create-n8n-role.sh` and
+  `02-create-app-runtime-role.sh` have only ever run once (at original
+  volume init) plus been manually re-applied to the live volume; neither
+  has been exercised against a genuinely fresh one yet.
+- Confirm `services/api`'s `/api/v1/health` and n8n's own startup both
+  still succeed end-to-end under whatever the final role arrangement is.
 
-None of this has been implemented yet. The current local stack remains on
-`app_rw` (superuser) and the database-wide `n8n_internal` grant described
-in `docs/local-n8n-setup.md`, unchanged, until this backlog is actioned.
+## Current state summary
+
+- `n8n_internal`: database-wide `CONNECT, CREATE, TEMPORARY` grant, owns
+  schema `n8n`. Unchanged by decision (item 1).
+- `app_runtime` (new this session): owns schema `app` only, `CONNECT` on
+  the database, no database-level `CREATE`/`TEMPORARY`, no superuser
+  attributes. Used by `services/api` for both runtime queries and
+  migrations.
+- `app_rw`: still the bootstrap role, still a Postgres superuser. No
+  longer used by `services/api`. Item 2's remaining parts (migration-role
+  split, decide `app_rw`'s long-term shape) are open.
+- `app_audit_ro`: not created (item 3, open).
