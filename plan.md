@@ -182,6 +182,17 @@ To keep scope honest against readme.md's own caveats:
 
 ---
 
+## 8. Pre-production security backlog (database roles)
+
+Tracked in [`docs/pre-production-security-todo.md`](docs/pre-production-security-todo.md).
+The local Postgres/n8n stack works and is schema-isolated, but `app_rw` is
+currently a Postgres superuser and `n8n_internal`'s grant is database-wide
+rather than schema-scoped. Do not claim production-ready database isolation
+until that backlog is resolved and re-verified. Must be closed out before
+Phase 7 (§4) release readiness, and ideally before Phase 1 exit.
+
+---
+
 ## Immediate next action
 
 Start **§1 Repository bootstrap** followed by **§3 Sprint 1**. Everything else in this plan is sequenced after that vertical slice proves the architecture end-to-end.
