@@ -54,6 +54,13 @@ n8n becomes available at http://localhost:5678/.
 | Logs | `docker compose logs -f n8n` |
 | Connect to Postgres as app owner | `docker exec -it fincrimeintelligenceai-postgres-1 psql -U app_rw -d fincrime` |
 
+## Workflows
+
+- [`docs/sprint-2-n8n-workflow-integration.md`](sprint-2-n8n-workflow-integration.md) —
+  the n8n-to-FastAPI transaction-ingestion workflow: what it does, how to
+  import/activate it (including a real gotcha with the CLI's
+  `--userId`/`--projectId` flags on re-import), and how to run its tests.
+
 ## Troubleshooting
 
 - **`permission denied for database fincrime` in n8n logs**: see the grants

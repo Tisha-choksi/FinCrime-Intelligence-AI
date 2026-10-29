@@ -197,6 +197,20 @@ and ideally before Phase 1 exit.
 
 ---
 
+## 9. Sprint 2 — n8n-to-API workflow integration (done)
+
+First real n8n workflow (`n8n/workflows/core/transaction-ingestion-to-api.json`)
+wired to the Sprint 1 API, with explicit success/validation-error/
+auth-error/transient-error/timeout branches, bounded retries, and
+correlation-ID propagation — see
+[`docs/sprint-2-n8n-workflow-integration.md`](docs/sprint-2-n8n-workflow-integration.md)
+for the design, a real bug this surfaced in n8n 1.70.3's Wait-node loop
+resumption (and the acyclic workaround), and exactly what's automated vs.
+manually verified in testing. No database roles/grants/volumes were
+touched.
+
+---
+
 ## Immediate next action
 
 Start **§1 Repository bootstrap** followed by **§3 Sprint 1**. Everything else in this plan is sequenced after that vertical slice proves the architecture end-to-end.

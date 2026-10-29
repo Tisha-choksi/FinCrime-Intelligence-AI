@@ -77,6 +77,13 @@ local Postgres (via `app_runtime`) covering valid import, alert creation
 atomic rollback + safe retry on a mid-batch failure. These are skipped
 automatically if no local Postgres is reachable.
 
+## n8n integration
+
+`n8n/workflows/core/transaction-ingestion-to-api.json` calls
+`POST /api/v1/transactions/import` with retries, correlation-ID
+propagation, and distinct success/validation/auth/transient-error paths.
+See [`docs/sprint-2-n8n-workflow-integration.md`](../../docs/sprint-2-n8n-workflow-integration.md).
+
 ## Known gaps (tracked, not fixed here)
 
 `app_rw` (used only for bootstrap/migrations of other roles, not by this
