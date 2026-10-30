@@ -1,0 +1,499 @@
+[
+{
+  "id": "txn-ingest-to-api-wf",
+  "name": "Core - Transaction Ingestion to API",
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "id": "n1",
+      "name": "Ingest Transactions Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-600, 0],
+      "webhookId": "b3e2c9f3-fd4e-4d7a-8f3d-285ea20fc6cc",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ingest-transactions",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "n2",
+      "name": "Generate Correlation Id",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [-360, 0],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "function uuidv4() {\n  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {\n    const r = Math.random() * 16 | 0;\n    const v = c === 'x' ? r : (r & 0x3 | 0x8);\n    return v.toString(16);\n  });\n}\n\n// The webhook node nests the POST payload under `.body`; a caller may\n// supply its own correlationId there to be propagated instead of generated.\nconst out = [];\nfor (const item of $input.all()) {\n  item.json.correlationId = (item.json.body && item.json.body.correlationId) || uuidv4();\n  out.push(item);\n}\nreturn out;"
+      }
+    },
+
+    {
+      "id": "n3a",
+      "name": "Call API Attempt 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-120, 0],
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/transactions/import",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Correlation-Id", "value": "={{ $json.correlationId }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { transactions: $json.body.transactions } }}",
+        "options": {
+          "timeout": 8000,
+          "response": { "response": { "neverError": true, "fullResponse": true } }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": { "id": "txn-import-svc-token", "name": "Transaction Import Service Token" }
+      }
+    },
+    {
+      "id": "n4a",
+      "name": "If Success 1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [120, -200],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            { "id": "c1a", "leftValue": "={{ $json.statusCode }}", "rightValue": 300, "operator": { "type": "number", "operation": "lt" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n5a",
+      "name": "If Auth Error 1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [360, -100],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "or",
+          "conditions": [
+            { "id": "c2a", "leftValue": "={{ $json.statusCode }}", "rightValue": 401, "operator": { "type": "number", "operation": "equals" } },
+            { "id": "c3a", "leftValue": "={{ $json.statusCode }}", "rightValue": 403, "operator": { "type": "number", "operation": "equals" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n6a",
+      "name": "If Validation Error 1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [600, 0],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "or",
+          "conditions": [
+            { "id": "c4a", "leftValue": "={{ $json.statusCode }}", "rightValue": 400, "operator": { "type": "number", "operation": "equals" } },
+            { "id": "c5a", "leftValue": "={{ $json.statusCode }}", "rightValue": 422, "operator": { "type": "number", "operation": "equals" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n7a",
+      "name": "Wait Before Retry 1",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [840, 100],
+      "webhookId": "b7e67e45-f028-4a88-829e-9be621f6c780",
+      "parameters": { "resume": "timeInterval", "amount": 2, "unit": "seconds" }
+    },
+
+    {
+      "id": "n3b",
+      "name": "Call API Attempt 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1080, 100],
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/transactions/import",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Correlation-Id", "value": "={{ $('Generate Correlation Id').item.json.correlationId }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { transactions: $('Generate Correlation Id').item.json.body.transactions } }}",
+        "options": {
+          "timeout": 8000,
+          "response": { "response": { "neverError": true, "fullResponse": true } }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": { "id": "txn-import-svc-token", "name": "Transaction Import Service Token" }
+      }
+    },
+    {
+      "id": "n4b",
+      "name": "If Success 2",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1320, -100],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            { "id": "c1b", "leftValue": "={{ $json.statusCode }}", "rightValue": 300, "operator": { "type": "number", "operation": "lt" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n5b",
+      "name": "If Auth Error 2",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, 0],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "or",
+          "conditions": [
+            { "id": "c2b", "leftValue": "={{ $json.statusCode }}", "rightValue": 401, "operator": { "type": "number", "operation": "equals" } },
+            { "id": "c3b", "leftValue": "={{ $json.statusCode }}", "rightValue": 403, "operator": { "type": "number", "operation": "equals" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n6b",
+      "name": "If Validation Error 2",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1800, 100],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "or",
+          "conditions": [
+            { "id": "c4b", "leftValue": "={{ $json.statusCode }}", "rightValue": 400, "operator": { "type": "number", "operation": "equals" } },
+            { "id": "c5b", "leftValue": "={{ $json.statusCode }}", "rightValue": 422, "operator": { "type": "number", "operation": "equals" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n7b",
+      "name": "Wait Before Retry 2",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [2040, 200],
+      "webhookId": "c8f78f56-0139-5b99-930f-aaf732f7d891",
+      "parameters": { "resume": "timeInterval", "amount": 2, "unit": "seconds" }
+    },
+
+    {
+      "id": "n3c",
+      "name": "Call API Attempt 3",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2280, 200],
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/transactions/import",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Correlation-Id", "value": "={{ $('Generate Correlation Id').item.json.correlationId }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { transactions: $('Generate Correlation Id').item.json.body.transactions } }}",
+        "options": {
+          "timeout": 8000,
+          "response": { "response": { "neverError": true, "fullResponse": true } }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": { "id": "txn-import-svc-token", "name": "Transaction Import Service Token" }
+      }
+    },
+    {
+      "id": "n4c",
+      "name": "If Success 3",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2520, 0],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            { "id": "c1c", "leftValue": "={{ $json.statusCode }}", "rightValue": 300, "operator": { "type": "number", "operation": "lt" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n5c",
+      "name": "If Auth Error 3",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2760, 100],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "or",
+          "conditions": [
+            { "id": "c2c", "leftValue": "={{ $json.statusCode }}", "rightValue": 401, "operator": { "type": "number", "operation": "equals" } },
+            { "id": "c3c", "leftValue": "={{ $json.statusCode }}", "rightValue": 403, "operator": { "type": "number", "operation": "equals" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n6c",
+      "name": "If Validation Error 3",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [3000, 200],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "or",
+          "conditions": [
+            { "id": "c4c", "leftValue": "={{ $json.statusCode }}", "rightValue": 400, "operator": { "type": "number", "operation": "equals" } },
+            { "id": "c5c", "leftValue": "={{ $json.statusCode }}", "rightValue": 422, "operator": { "type": "number", "operation": "equals" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+
+    {
+      "id": "n10",
+      "name": "Success Outcome",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [360, -340],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "id": "o1", "name": "outcome", "type": "string", "value": "success" },
+            { "id": "o2", "name": "correlationId", "type": "string", "value": "={{ $('Generate Correlation Id').item.json.correlationId }}" },
+            { "id": "o3", "name": "httpStatus", "type": "number", "value": "={{ $json.statusCode }}" },
+            { "id": "o4", "name": "responseStatusCode", "type": "number", "value": "={{ $json.statusCode }}" },
+            { "id": "o5", "name": "attempts", "type": "number", "value": "={{ $('Call API Attempt 3').isExecuted ? 3 : ($('Call API Attempt 2').isExecuted ? 2 : 1) }}" },
+            { "id": "o6", "name": "imported", "type": "number", "value": "={{ $json.body.imported }}" },
+            { "id": "o7", "name": "duplicates", "type": "number", "value": "={{ $json.body.duplicates }}" },
+            { "id": "o8", "name": "alertsCreated", "type": "number", "value": "={{ $json.body.alerts_created }}" },
+            { "id": "o9", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n11",
+      "name": "Auth Error Outcome",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [600, -220],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "id": "p1", "name": "outcome", "type": "string", "value": "authentication_error" },
+            { "id": "p2", "name": "correlationId", "type": "string", "value": "={{ $('Generate Correlation Id').item.json.correlationId }}" },
+            { "id": "p3", "name": "httpStatus", "type": "number", "value": "={{ $json.statusCode }}" },
+            { "id": "p4", "name": "responseStatusCode", "type": "number", "value": "={{ $json.statusCode }}" },
+            { "id": "p5", "name": "attempts", "type": "number", "value": "={{ $('Call API Attempt 3').isExecuted ? 3 : ($('Call API Attempt 2').isExecuted ? 2 : 1) }}" },
+            { "id": "p6", "name": "errorDetail", "type": "string", "value": "={{ $json.body?.detail || 'authentication failed' }}" },
+            { "id": "p7", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n12",
+      "name": "Validation Error Outcome",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [840, -120],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "id": "q1", "name": "outcome", "type": "string", "value": "validation_error" },
+            { "id": "q2", "name": "correlationId", "type": "string", "value": "={{ $('Generate Correlation Id').item.json.correlationId }}" },
+            { "id": "q3", "name": "httpStatus", "type": "number", "value": "={{ $json.statusCode }}" },
+            { "id": "q4", "name": "responseStatusCode", "type": "number", "value": "={{ $json.statusCode }}" },
+            { "id": "q5", "name": "attempts", "type": "number", "value": "={{ $('Call API Attempt 3').isExecuted ? 3 : ($('Call API Attempt 2').isExecuted ? 2 : 1) }}" },
+            { "id": "q6", "name": "errorDetail", "type": "string", "value": "={{ $json.body?.detail || 'validation failed' }}" },
+            { "id": "q7", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n13",
+      "name": "Transient Error Outcome",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [3240, 300],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "id": "r1", "name": "outcome", "type": "string", "value": "transient_error_retries_exhausted" },
+            { "id": "r2", "name": "correlationId", "type": "string", "value": "={{ $('Generate Correlation Id').item.json.correlationId }}" },
+            { "id": "r3", "name": "httpStatus", "type": "number", "value": "={{ $json.statusCode || null }}" },
+            { "id": "r4", "name": "responseStatusCode", "type": "number", "value": 503 },
+            { "id": "r5", "name": "attempts", "type": "number", "value": 3 },
+            { "id": "r6", "name": "errorDetail", "type": "string", "value": "={{ $json.body?.detail || $json.error?.message || 'transient failure, retries exhausted' }}" },
+            { "id": "r7", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n14",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [3480, 0],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": { "responseCode": "={{ $json.responseStatusCode }}" }
+      }
+    }
+  ],
+  "connections": {
+    "Ingest Transactions Webhook": { "main": [[{ "node": "Generate Correlation Id", "type": "main", "index": 0 }]] },
+    "Generate Correlation Id": { "main": [[{ "node": "Call API Attempt 1", "type": "main", "index": 0 }]] },
+
+    "Call API Attempt 1": {
+      "main": [
+        [{ "node": "If Success 1", "type": "main", "index": 0 }],
+        [{ "node": "Wait Before Retry 1", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Success 1": {
+      "main": [
+        [{ "node": "Success Outcome", "type": "main", "index": 0 }],
+        [{ "node": "If Auth Error 1", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Auth Error 1": {
+      "main": [
+        [{ "node": "Auth Error Outcome", "type": "main", "index": 0 }],
+        [{ "node": "If Validation Error 1", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Validation Error 1": {
+      "main": [
+        [{ "node": "Validation Error Outcome", "type": "main", "index": 0 }],
+        [{ "node": "Wait Before Retry 1", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait Before Retry 1": { "main": [[{ "node": "Call API Attempt 2", "type": "main", "index": 0 }]] },
+
+    "Call API Attempt 2": {
+      "main": [
+        [{ "node": "If Success 2", "type": "main", "index": 0 }],
+        [{ "node": "Wait Before Retry 2", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Success 2": {
+      "main": [
+        [{ "node": "Success Outcome", "type": "main", "index": 0 }],
+        [{ "node": "If Auth Error 2", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Auth Error 2": {
+      "main": [
+        [{ "node": "Auth Error Outcome", "type": "main", "index": 0 }],
+        [{ "node": "If Validation Error 2", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Validation Error 2": {
+      "main": [
+        [{ "node": "Validation Error Outcome", "type": "main", "index": 0 }],
+        [{ "node": "Wait Before Retry 2", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait Before Retry 2": { "main": [[{ "node": "Call API Attempt 3", "type": "main", "index": 0 }]] },
+
+    "Call API Attempt 3": {
+      "main": [
+        [{ "node": "If Success 3", "type": "main", "index": 0 }],
+        [{ "node": "Transient Error Outcome", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Success 3": {
+      "main": [
+        [{ "node": "Success Outcome", "type": "main", "index": 0 }],
+        [{ "node": "If Auth Error 3", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Auth Error 3": {
+      "main": [
+        [{ "node": "Auth Error Outcome", "type": "main", "index": 0 }],
+        [{ "node": "If Validation Error 3", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Validation Error 3": {
+      "main": [
+        [{ "node": "Validation Error Outcome", "type": "main", "index": 0 }],
+        [{ "node": "Transient Error Outcome", "type": "main", "index": 0 }]
+      ]
+    },
+
+    "Success Outcome": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
+    "Auth Error Outcome": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
+    "Validation Error Outcome": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
+    "Transient Error Outcome": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+  }
+}
+]

@@ -73,6 +73,7 @@ services:
       POSTGRES_APP_RUNTIME_PASSWORD: ${POSTGRES_APP_RUNTIME_PASSWORD:?set in .env}
       API_PORT: "8000"
       API_JWT_AUDIENCE: ${API_JWT_AUDIENCE:-fincrime-api}
+      API_JWT_SECRET: ${API_JWT_SECRET:?set in .env}
       N8N_API_SERVICE_TOKEN: ${N8N_API_SERVICE_TOKEN:?set in .env}
     ports:
       - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
