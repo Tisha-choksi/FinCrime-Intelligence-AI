@@ -31,6 +31,7 @@ class TransactionImportResult(BaseModel):
 
 
 class TransactionImportResponse(BaseModel):
+    correlation_id: uuid.UUID
     imported: int
     duplicates: int
     alerts_created: int
