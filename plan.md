@@ -211,6 +211,22 @@ touched.
 
 ---
 
+## 10. Sprint 3 — Investigation case management (done)
+
+`investigation_cases`/`case_history`/`case_transactions`/`case_evidence`
+tables and CAS-061..065 endpoints, built on Sprint 1/2 — see
+[`docs/sprint-3-case-management.md`](docs/sprint-3-case-management.md) for
+the design, the placeholder analyst-JWT auth layer this required
+(tracked as a new item in `docs/pre-production-security-todo.md`, since no
+OIDC/user-directory decision has been made yet), the validated CAS-063
+status-transition graph, the CAS-062 assignment authorization rules, and
+the n8n workflow extension that auto-creates a case on a qualifying alert
+(service actor may create a case, never assign/transition/close one — no
+automated actor makes a consequential case decision). No database
+roles/grants/volumes were touched.
+
+---
+
 ## Immediate next action
 
 Start **§1 Repository bootstrap** followed by **§3 Sprint 1**. Everything else in this plan is sequenced after that vertical slice proves the architecture end-to-end.

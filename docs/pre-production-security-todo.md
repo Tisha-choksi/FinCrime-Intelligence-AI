@@ -1,9 +1,11 @@
-# Pre-production security backlog — database roles
+# Pre-production security backlog — database roles and identity
 
 Status as of the current local setup: functional and schema-isolated
-(verified — see `docs/local-n8n-setup.md`), but **not** least-privilege.
-Do not describe database isolation as production-ready until the items
-below are resolved and re-verified.
+(verified — see `docs/local-n8n-setup.md`), but **not** least-privilege,
+and (as of Sprint 3) carrying a placeholder analyst-identity layer with no
+real identity provider behind it. Do not describe database isolation or
+analyst authentication as production-ready until the items below are
+resolved and re-verified.
 
 ## 1. Narrow `n8n_internal`'s database-level grant
 
@@ -98,6 +100,35 @@ Still open, once items 1 and 2's remaining parts land:
 - Confirm `services/api`'s `/api/v1/health` and n8n's own startup both
   still succeed end-to-end under whatever the final role arrangement is.
 
+## 5. Replace the placeholder analyst-JWT auth layer (new in Sprint 3)
+
+`app/core/security.py`'s `get_current_analyst`/`get_case_creation_actor`
+decode a locally-signed HS256 JWT (secret: `API_JWT_SECRET`) carrying
+`sub`/`org`/`role` claims, with **no real identity provider, no user
+directory, no key rotation, no revocation, no expiry enforcement beyond
+whatever the token happened to be minted with**. Anyone who can mint a
+token with the right secret can claim to be any analyst in any
+organization with any role. This exists only because case management
+(Sprint 3) needed *some* notion of an authenticated, organization-scoped
+principal, and the real OIDC decision (plan.md §7.2) still hasn't been
+made.
+
+- Resolve the OIDC provider decision (plan.md §7.2), then replace
+  `_decode_analyst_token` with real token validation against that
+  provider (signature via the provider's JWKS, issuer/audience checks,
+  expiry enforcement).
+- Build the `users`/`organization_memberships` tables plan.md §2 called
+  for, so `assigned_analyst_id`/`actor_analyst_id` can be validated
+  against a real roster instead of trusted as bare claims. Right now
+  `CAS-062`'s authorization logic cannot verify a target `analyst_id` is a
+  real person in the organization at all — it only validates the *acting*
+  principal's own claims.
+- Decide on key rotation and revocation for `API_JWT_SECRET` once this
+  stops being a local dev convenience.
+- Re-audit CAS-061..065's authorization logic once a real roster exists —
+  the "lead" role concept may need to become real RBAC rather than a
+  claimed string.
+
 ## Current state summary
 
 - `n8n_internal`: database-wide `CONNECT, CREATE, TEMPORARY` grant, owns
@@ -110,3 +141,5 @@ Still open, once items 1 and 2's remaining parts land:
   longer used by `services/api`. Item 2's remaining parts (migration-role
   split, decide `app_rw`'s long-term shape) are open.
 - `app_audit_ro`: not created (item 3, open).
+- Analyst JWT layer (new, Sprint 3): placeholder HS256 signing, no IdP, no
+  user directory, no revocation (item 5, open).
