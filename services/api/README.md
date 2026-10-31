@@ -6,10 +6,12 @@ app/
 ├── core/
 │   ├── config.py        # env-driven settings
 │   ├── db.py            # async engine/session (connects as app_runtime)
-│   └── security.py      # placeholder service-token auth (not OIDC yet)
+│   ├── correlation.py   # X-Correlation-Id propagation, shared by routers
+│   └── security.py      # placeholder service-token + analyst-JWT auth (not OIDC yet)
 ├── api/v1/
 │   ├── health.py        # GET /api/v1/health
-│   └── transactions.py  # POST /api/v1/transactions/import
+│   ├── transactions.py  # POST /api/v1/transactions/import
+│   └── cases.py         # CAS-061..065 investigation case management
 ├── models/               # SQLAlchemy ORM, schema "app"
 ├── schemas/              # Pydantic request/response models
 ├── repositories/         # DB access, one per aggregate
@@ -49,6 +51,7 @@ export PYTHONPATH="$PWD"
 export POSTGRES_HOST=localhost POSTGRES_PORT=55432
 export POSTGRES_APP_RUNTIME_PASSWORD=<value from ../../.env>
 export N8N_API_SERVICE_TOKEN=<value from ../../.env>
+export API_JWT_SECRET=<value from ../../.env>
 
 uvicorn app.main:app --reload --port 8000
 ```
@@ -71,24 +74,32 @@ pytest
 ```
 
 `test_health.py` is a pure unit test (fake DB dependency, no Postgres
-needed). `test_transactions.py` is a real integration test against the
-local Postgres (via `app_runtime`) covering valid import, alert creation
-(`MON-011`), duplicate idempotency, input validation, missing auth, and
-atomic rollback + safe retry on a mid-batch failure. These are skipped
+needed). `test_transactions.py` and `test_cases.py` are real integration
+tests against the local Postgres (via `app_runtime`) covering valid
+import, alert creation (`MON-011`), case creation/assignment/status
+transitions, duplicate idempotency, input validation, cross-organization
+isolation, unauthorized assignment, missing/wrong auth, and atomic
+rollback + safe retry on mid-transaction failures. These are skipped
 automatically if no local Postgres is reachable.
 
 ## n8n integration
 
 `n8n/workflows/core/transaction-ingestion-to-api.json` calls
 `POST /api/v1/transactions/import` with retries, correlation-ID
-propagation, and distinct success/validation/auth/transient-error paths.
-See [`docs/sprint-2-n8n-workflow-integration.md`](../../docs/sprint-2-n8n-workflow-integration.md).
+propagation, and distinct success/validation/auth/transient-error paths,
+and (Sprint 3) automatically calls `POST /api/v1/cases` when a qualifying
+alert is produced. See
+[`docs/sprint-2-n8n-workflow-integration.md`](../../docs/sprint-2-n8n-workflow-integration.md)
+and
+[`docs/sprint-3-case-management.md`](../../docs/sprint-3-case-management.md).
 
 ## Known gaps (tracked, not fixed here)
 
 `app_rw` (used only for bootstrap/migrations of other roles, not by this
 service) is still a Postgres superuser, there's no separate migration role
-distinct from it yet, and `app_audit_ro` doesn't exist yet. See
+distinct from it yet, `app_audit_ro` doesn't exist yet, and (Sprint 3) the
+analyst-JWT auth layer has no real identity provider, user directory, or
+revocation behind it. See
 [`docs/pre-production-security-todo.md`](../../docs/pre-production-security-todo.md).
 Do not describe this service as having production-ready database
-isolation until that backlog is resolved.
+isolation or authentication until that backlog is resolved.

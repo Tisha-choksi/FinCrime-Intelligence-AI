@@ -324,7 +324,11 @@
             { "id": "o6", "name": "imported", "type": "number", "value": "={{ $json.body.imported }}" },
             { "id": "o7", "name": "duplicates", "type": "number", "value": "={{ $json.body.duplicates }}" },
             { "id": "o8", "name": "alertsCreated", "type": "number", "value": "={{ $json.body.alerts_created }}" },
-            { "id": "o9", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" }
+            { "id": "o9", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" },
+            { "id": "o10", "name": "alertId", "type": "string", "value": "={{ $('Call API Attempt 3').isExecuted ? $('Call API Attempt 3').item.json.body.results[0].alert_id : ($('Call API Attempt 2').isExecuted ? $('Call API Attempt 2').item.json.body.results[0].alert_id : $('Call API Attempt 1').item.json.body.results[0].alert_id) }}" },
+            { "id": "o11", "name": "caseCreated", "type": "boolean", "value": false },
+            { "id": "o12", "name": "caseId", "type": "string", "value": null },
+            { "id": "o13", "name": "caseStatus", "type": "string", "value": "not_applicable" }
           ]
         },
         "options": {}
@@ -346,7 +350,10 @@
             { "id": "p4", "name": "responseStatusCode", "type": "number", "value": "={{ $json.statusCode }}" },
             { "id": "p5", "name": "attempts", "type": "number", "value": "={{ $('Call API Attempt 3').isExecuted ? 3 : ($('Call API Attempt 2').isExecuted ? 2 : 1) }}" },
             { "id": "p6", "name": "errorDetail", "type": "string", "value": "={{ $json.body?.detail || 'authentication failed' }}" },
-            { "id": "p7", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" }
+            { "id": "p7", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" },
+            { "id": "p8", "name": "caseCreated", "type": "boolean", "value": false },
+            { "id": "p9", "name": "caseId", "type": "string", "value": null },
+            { "id": "p10", "name": "caseStatus", "type": "string", "value": "not_applicable" }
           ]
         },
         "options": {}
@@ -368,7 +375,10 @@
             { "id": "q4", "name": "responseStatusCode", "type": "number", "value": "={{ $json.statusCode }}" },
             { "id": "q5", "name": "attempts", "type": "number", "value": "={{ $('Call API Attempt 3').isExecuted ? 3 : ($('Call API Attempt 2').isExecuted ? 2 : 1) }}" },
             { "id": "q6", "name": "errorDetail", "type": "string", "value": "={{ $json.body?.detail || 'validation failed' }}" },
-            { "id": "q7", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" }
+            { "id": "q7", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" },
+            { "id": "q8", "name": "caseCreated", "type": "boolean", "value": false },
+            { "id": "q9", "name": "caseId", "type": "string", "value": null },
+            { "id": "q10", "name": "caseStatus", "type": "string", "value": "not_applicable" }
           ]
         },
         "options": {}
@@ -390,7 +400,188 @@
             { "id": "r4", "name": "responseStatusCode", "type": "number", "value": 503 },
             { "id": "r5", "name": "attempts", "type": "number", "value": 3 },
             { "id": "r6", "name": "errorDetail", "type": "string", "value": "={{ $json.body?.detail || $json.error?.message || 'transient failure, retries exhausted' }}" },
-            { "id": "r7", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" }
+            { "id": "r7", "name": "timestamp", "type": "string", "value": "={{ $now.toISO() }}" },
+            { "id": "r8", "name": "caseCreated", "type": "boolean", "value": false },
+            { "id": "r9", "name": "caseId", "type": "string", "value": null },
+            { "id": "r10", "name": "caseStatus", "type": "string", "value": "not_applicable" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n15",
+      "name": "Check Alert Created",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [360, -480],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            { "id": "d1", "leftValue": "={{ $json.alertsCreated }}", "rightValue": 0, "operator": { "type": "number", "operation": "gt" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n16a",
+      "name": "Create Case Attempt 1",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [600, -580],
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/cases",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Correlation-Id", "value": "={{ $('Generate Correlation Id').item.json.correlationId }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { alert_id: $('Success Outcome').item.json.alertId } }}",
+        "options": {
+          "timeout": 8000,
+          "response": { "response": { "neverError": true, "fullResponse": true } }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": { "id": "txn-import-svc-token", "name": "Transaction Import Service Token" }
+      }
+    },
+    {
+      "id": "n17a",
+      "name": "If Case Success 1",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [840, -580],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            { "id": "e1", "leftValue": "={{ $json.statusCode }}", "rightValue": 300, "operator": { "type": "number", "operation": "lt" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n18",
+      "name": "Wait Before Case Retry",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1080, -460],
+      "webhookId": "d4a1f0c2-9e3b-4f5a-8c7d-1234567890ab",
+      "parameters": { "resume": "timeInterval", "amount": 2, "unit": "seconds" }
+    },
+    {
+      "id": "n16b",
+      "name": "Create Case Attempt 2",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1320, -460],
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "http://api:8000/api/v1/cases",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "X-Correlation-Id", "value": "={{ $('Generate Correlation Id').item.json.correlationId }}" }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ { alert_id: $('Success Outcome').item.json.alertId } }}",
+        "options": {
+          "timeout": 8000,
+          "response": { "response": { "neverError": true, "fullResponse": true } }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": { "id": "txn-import-svc-token", "name": "Transaction Import Service Token" }
+      }
+    },
+    {
+      "id": "n17b",
+      "name": "If Case Success 2",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1560, -460],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "combinator": "and",
+          "conditions": [
+            { "id": "e2", "leftValue": "={{ $json.statusCode }}", "rightValue": 300, "operator": { "type": "number", "operation": "lt" } }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n19",
+      "name": "Merge Case Result",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1800, -580],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "id": "f1", "name": "outcome", "type": "string", "value": "={{ $('Success Outcome').item.json.outcome }}" },
+            { "id": "f2", "name": "correlationId", "type": "string", "value": "={{ $('Success Outcome').item.json.correlationId }}" },
+            { "id": "f3", "name": "httpStatus", "type": "number", "value": "={{ $('Success Outcome').item.json.httpStatus }}" },
+            { "id": "f4", "name": "responseStatusCode", "type": "number", "value": "={{ $('Success Outcome').item.json.responseStatusCode }}" },
+            { "id": "f5", "name": "attempts", "type": "number", "value": "={{ $('Success Outcome').item.json.attempts }}" },
+            { "id": "f6", "name": "imported", "type": "number", "value": "={{ $('Success Outcome').item.json.imported }}" },
+            { "id": "f7", "name": "duplicates", "type": "number", "value": "={{ $('Success Outcome').item.json.duplicates }}" },
+            { "id": "f8", "name": "alertsCreated", "type": "number", "value": "={{ $('Success Outcome').item.json.alertsCreated }}" },
+            { "id": "f9", "name": "timestamp", "type": "string", "value": "={{ $('Success Outcome').item.json.timestamp }}" },
+            { "id": "f10", "name": "caseCreated", "type": "boolean", "value": true },
+            { "id": "f11", "name": "caseId", "type": "string", "value": "={{ $json.body.id }}" },
+            { "id": "f12", "name": "caseStatus", "type": "string", "value": "={{ $json.body.status }}" },
+            { "id": "f13", "name": "caseAlreadyExisted", "type": "boolean", "value": "={{ !$json.body.created }}" }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "n20",
+      "name": "Case Creation Failed Outcome",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [1800, -340],
+      "parameters": {
+        "mode": "manual",
+        "assignments": {
+          "assignments": [
+            { "id": "g1", "name": "outcome", "type": "string", "value": "={{ $('Success Outcome').item.json.outcome }}" },
+            { "id": "g2", "name": "correlationId", "type": "string", "value": "={{ $('Success Outcome').item.json.correlationId }}" },
+            { "id": "g3", "name": "httpStatus", "type": "number", "value": "={{ $('Success Outcome').item.json.httpStatus }}" },
+            { "id": "g4", "name": "responseStatusCode", "type": "number", "value": "={{ $('Success Outcome').item.json.responseStatusCode }}" },
+            { "id": "g5", "name": "attempts", "type": "number", "value": "={{ $('Success Outcome').item.json.attempts }}" },
+            { "id": "g6", "name": "imported", "type": "number", "value": "={{ $('Success Outcome').item.json.imported }}" },
+            { "id": "g7", "name": "duplicates", "type": "number", "value": "={{ $('Success Outcome').item.json.duplicates }}" },
+            { "id": "g8", "name": "alertsCreated", "type": "number", "value": "={{ $('Success Outcome').item.json.alertsCreated }}" },
+            { "id": "g9", "name": "timestamp", "type": "string", "value": "={{ $('Success Outcome').item.json.timestamp }}" },
+            { "id": "g10", "name": "caseCreated", "type": "boolean", "value": false },
+            { "id": "g11", "name": "caseId", "type": "string", "value": null },
+            { "id": "g12", "name": "caseStatus", "type": "string", "value": "creation_failed" },
+            { "id": "g13", "name": "caseError", "type": "string", "value": "={{ $json.body?.detail || $json.error?.message || 'case creation failed after retries' }}" }
           ]
         },
         "options": {}
@@ -490,10 +681,44 @@
       ]
     },
 
-    "Success Outcome": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
+    "Success Outcome": { "main": [[{ "node": "Check Alert Created", "type": "main", "index": 0 }]] },
     "Auth Error Outcome": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
     "Validation Error Outcome": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
-    "Transient Error Outcome": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
+    "Transient Error Outcome": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
+
+    "Check Alert Created": {
+      "main": [
+        [{ "node": "Create Case Attempt 1", "type": "main", "index": 0 }],
+        [{ "node": "Respond to Webhook", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Case Attempt 1": {
+      "main": [
+        [{ "node": "If Case Success 1", "type": "main", "index": 0 }],
+        [{ "node": "Wait Before Case Retry", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Case Success 1": {
+      "main": [
+        [{ "node": "Merge Case Result", "type": "main", "index": 0 }],
+        [{ "node": "Wait Before Case Retry", "type": "main", "index": 0 }]
+      ]
+    },
+    "Wait Before Case Retry": { "main": [[{ "node": "Create Case Attempt 2", "type": "main", "index": 0 }]] },
+    "Create Case Attempt 2": {
+      "main": [
+        [{ "node": "If Case Success 2", "type": "main", "index": 0 }],
+        [{ "node": "Case Creation Failed Outcome", "type": "main", "index": 0 }]
+      ]
+    },
+    "If Case Success 2": {
+      "main": [
+        [{ "node": "Merge Case Result", "type": "main", "index": 0 }],
+        [{ "node": "Case Creation Failed Outcome", "type": "main", "index": 0 }]
+      ]
+    },
+    "Merge Case Result": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] },
+    "Case Creation Failed Outcome": { "main": [[{ "node": "Respond to Webhook", "type": "main", "index": 0 }]] }
   }
 }
 ]
