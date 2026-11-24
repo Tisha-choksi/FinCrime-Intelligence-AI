@@ -1,11 +1,14 @@
 # Pre-production security backlog — database roles and identity
 
-Status as of the current local setup: functional and schema-isolated
-(verified — see `docs/local-n8n-setup.md`), but **not** least-privilege,
-and (as of Sprint 3) carrying a placeholder analyst-identity layer with no
-real identity provider behind it. Do not describe database isolation or
-analyst authentication as production-ready until the items below are
-resolved and re-verified.
+Status as of Sprint 4: database roles are now split least-privilege
+(bootstrap/migrator/runtime/audit-read-only, each verified), and analyst
+identity is backed by a real OIDC provider (Keycloak) instead of
+Sprint 3's placeholder shared-secret JWT — see
+`docs/sprint-4-identity-and-authz.md` for the full design and what was
+and wasn't independently re-verified. Still not production-ready: see
+items 1, 5, and 6 below, and the "honest limits" section of that doc.
+Do not describe database isolation or analyst authentication as
+production-ready until the items below are resolved and re-verified.
 
 ## 1. Narrow `n8n_internal`'s database-level grant
 
@@ -37,109 +40,133 @@ Currently: `GRANT CONNECT, CREATE, TEMPORARY ON DATABASE fincrime TO n8n_interna
 
 ## 2. Replace the `app_rw` superuser arrangement
 
-**Partially done.** `services/api` now connects as a new, separate
-non-superuser role, `app_runtime` — created by
-`infra/docker/postgres-init/02-create-app-runtime-role.sh`, owning only its
-own `app` schema (mirrors the `n8n_internal`/`n8n` pattern). Verified on a
-disposable Postgres container first, then applied to the live volume via
-the same manual-grant approach used for the earlier n8n fix (no volume
-recreation): `app_runtime` can create/manage objects in `app`, and is
-denied on `public` and on creating new schemas — confirmed by direct test
-(`CREATE TABLE public.leak_test` → `permission denied`). Alembic migrations
-run as `app_runtime` too, scoped to the `app` schema only
-(`migrations/env.py`'s `include_name` filter — `app_runtime` can't even
-read other schemas, e.g. `n8n`, so unscoped autogenerate would error).
+**Mostly done as of Sprint 4.** `app_runtime` no longer owns anything.
+Ownership of schema `app` and all its tables moved to a new role,
+`app_migrator`, which Alembic now connects as
+(`migrations/env.py` reads `POSTGRES_APP_MIGRATOR_USER/PASSWORD` directly
+from the environment, never from the app's own `Settings` class — the
+running API process never holds a DDL-capable credential in memory).
+`app_runtime` was re-granted DML only (`SELECT, INSERT, UPDATE, DELETE`
+plus sequence usage) via `ALTER DEFAULT PRIVILEGES`, so future tables
+`app_migrator` creates are usable by the API immediately, without a
+separate manual grant step each time.
+
+Validated on a disposable Postgres container first (ownership transfer,
+then confirmed: `app_runtime` can still read/write existing data but is
+denied `CREATE TABLE`; `app_migrator` can create tables; a table
+`app_migrator` creates afterward is immediately writable by
+`app_runtime` with no extra grant), then applied identically to the live,
+non-recreated Postgres container.
 
 Still open:
 - `app_rw` itself is still the Postgres container's `POSTGRES_USER`, and
   the official postgres image always makes that role a superuser
-  (`Superuser, Create role, Create DB, Replication, Bypass RLS`). It is no
-  longer used by the running API, but it's still the bootstrap/init-script
-  role and the role used to run `infra/docker/postgres-init/*.sh`.
-- No separate **migration** role exists yet, distinct from both the
-  bootstrap role and the application runtime role. Right now
-  `app_runtime` runs its own migrations because it owns its schema — this
-  works for a single-service schema-per-owner model, but doesn't yet match
-  the "dedicated migration role" shape called for before production.
-  Revisit once there's a concrete reason to split them (e.g. the runtime
-  role should not have DDL rights at all in a hardened deployment).
+  (`Superuser, Create role, Create DB, Replication, Bypass RLS`). It is
+  used only for `infra/docker/postgres-init/*.sh` now (role bootstrap for
+  `app_runtime`, `app_migrator`, `app_audit_ro`, `n8n_internal`,
+  `keycloak_internal`) — never for serving requests or running
+  migrations.
 - Decide whether `app_rw` should be replaced by a genuinely non-superuser
-  bootstrap arrangement, or kept superuser but used *only* for
-  image-init/migration tasks and never for serving requests (already true
-  today, since `services/api` uses `app_runtime`).
+  bootstrap arrangement, or kept superuser but confined to image-init only
+  (already true in practice, not yet enforced any other way).
 
 ## 3. Define and implement `app_audit_ro`
 
-Referenced in `plan.md` §3 ("Sprint 1") as a least-privilege role but not
-yet created.
+**Done as of Sprint 4.** Role created by
+`infra/docker/postgres-init/06-create-app-audit-ro-role.sh`; granted
+`SELECT` on exactly `app.audit_events` and `app.case_history` by a real
+Alembic migration (`b794c1007fea_grant_app_audit_ro...py`, raw
+`op.execute` — those tables don't exist yet at first-init time on a
+fresh volume, so the grant has to happen after migrations create them,
+not in the init script). Verified directly: can read both tables, denied
+on every other table (including `organizations`), denied on every write
+— including `INSERT` into `audit_events` itself.
 
-- Define its intended scope: read-only access to `audit_events` (and
-  likely other append-only/audit tables as they're added), no write
-  privileges at all, enforced at the Postgres grant level rather than only
-  the application layer.
-- Decide which consumers use it (reporting, external audit tooling, an
-  internal admin view) before implementing — this determines whether it
-  also needs row-level security for tenant (`organization_id`) scoping.
+No consumer uses this role yet (no reporting tool/admin view exists) and
+no row-level security for tenant scoping was added — it currently sees
+all organizations' audit data. Add RLS before handing this role to
+anything less trusted than an internal admin.
 
 ## 4. Verify role ownership, schema grants, migrations, and clean-state startup
 
-Done for `app_runtime` specifically (`\du+`, `\dn+`, `pg_tables` ownership
-checks against the live `fincrime` database — see `services/api/README.md`
-and this session's verification: 6 tables in `app`, all owned by
-`app_runtime`; 32 tables in `n8n` and 0 in `public`, untouched).
+Done against the live, never-recreated Postgres container, for the
+current role arrangement (`\du+`, `\dn+`, `pg_tables` ownership checks):
+as of Sprint 4, schema `app` has 12 tables, all owned by `app_migrator`;
+`app_runtime` has DML-only access to all of them (confirmed: denied
+`CREATE TABLE`); `app_audit_ro` reads exactly 2 of them; `n8n` still has
+exactly 32 tables, untouched; `public` still has 0.
 
-Still open, once items 1 and 2's remaining parts land:
+Still open:
+- **Fresh-volume verification was not redone this sprint.** Sprint 1
+  verified a fresh-volume cycle for the original `app_runtime`-owns-schema
+  arrangement; Sprint 4's role split (`app_migrator` owning the schema
+  instead, plus `app_audit_ro`) was validated on a disposable container
+  with a *hand-built* replica schema, not by running
+  `docker compose down -v` + up from empty against the real init-script
+  sequence end-to-end. The init scripts were written to be consistent
+  with what was verified live, but that specific combination
+  (02 → 05 → 06, then 5 Alembic migrations) has not been exercised from a
+  genuinely empty volume. Do this before relying on it for a new
+  environment.
+- Item 1 (`n8n_internal`'s grant) remains an open decision, unchanged.
+- Item 2's `app_rw` superuser question remains open.
 
-- Re-run the same checks against whatever bootstrap/migration-role split
-  comes out of item 2.
-- Confirm a full `docker compose down -v` + `docker compose up` cycle
-  succeeds from an empty volume — `01-create-n8n-role.sh` and
-  `02-create-app-runtime-role.sh` have only ever run once (at original
-  volume init) plus been manually re-applied to the live volume; neither
-  has been exercised against a genuinely fresh one yet.
-- Confirm `services/api`'s `/api/v1/health` and n8n's own startup both
-  still succeed end-to-end under whatever the final role arrangement is.
+## 5. Replace the n8n service token with a real service-account OIDC client
 
-## 5. Replace the placeholder analyst-JWT auth layer (new in Sprint 3)
+The n8n → API service token (`N8N_API_SERVICE_TOKEN`) is unchanged since
+Sprint 1: a static shared secret, not an OIDC client, not subject to
+expiry or rotation. Sprint 4 narrowed its blast radius (it can now only
+call `POST /api/v1/cases` — case creation on a qualifying alert; every
+other case endpoint explicitly rejects it, verified by
+`test_service_token_cannot_assign_cases`), but didn't replace the
+mechanism itself.
 
-`app/core/security.py`'s `get_current_analyst`/`get_case_creation_actor`
-decode a locally-signed HS256 JWT (secret: `API_JWT_SECRET`) carrying
-`sub`/`org`/`role` claims, with **no real identity provider, no user
-directory, no key rotation, no revocation, no expiry enforcement beyond
-whatever the token happened to be minted with**. Anyone who can mint a
-token with the right secret can claim to be any analyst in any
-organization with any role. This exists only because case management
-(Sprint 3) needed *some* notion of an authenticated, organization-scoped
-principal, and the real OIDC decision (plan.md §7.2) still hasn't been
-made.
+- Add a confidential OIDC client for n8n in `infra/keycloak/realm-export.json`
+  with `serviceAccountsEnabled: true` (client-credentials grant), and
+  switch the workflow's HTTP Header Auth credential accordingly.
+- Decide token lifespan/rotation for that client separately from
+  analyst-facing tokens.
 
-- Resolve the OIDC provider decision (plan.md §7.2), then replace
-  `_decode_analyst_token` with real token validation against that
-  provider (signature via the provider's JWKS, issuer/audience checks,
-  expiry enforcement).
-- Build the `users`/`organization_memberships` tables plan.md §2 called
-  for, so `assigned_analyst_id`/`actor_analyst_id` can be validated
-  against a real roster instead of trusted as bare claims. Right now
-  `CAS-062`'s authorization logic cannot verify a target `analyst_id` is a
-  real person in the organization at all — it only validates the *acting*
-  principal's own claims.
-- Decide on key rotation and revocation for `API_JWT_SECRET` once this
-  stops being a local dev convenience.
-- Re-audit CAS-061..065's authorization logic once a real roster exists —
-  the "lead" role concept may need to become real RBAC rather than a
-  claimed string.
+## 6. Harden the analyst-identity layer now that it's real (follow-ups from Sprint 4)
+
+Sprint 4 replaced the placeholder HS256 JWT with real Keycloak-issued,
+JWKS-validated tokens, and replaced unvalidated org/role claims with a
+real `organization_memberships` table (see
+`docs/sprint-4-identity-and-authz.md` for the full design). What's
+still open on top of that real foundation:
+
+- No token revocation ahead of natural expiry (access tokens are
+  short-lived -- 5 minutes -- as the only mitigation; Keycloak's
+  introspection endpoint would give instant revocation but costs a
+  network round-trip per request and wasn't implemented).
+- No refresh-token handling, logout flow, or session UI -- this sprint
+  only implemented the resource-server (API-side) validation path.
+- "lead" vs "analyst" is still two compared string values in application
+  code (`app/services/cases.py`), now backed by a real roster
+  (`organization_memberships.role`) instead of a bare claim, but not a
+  general RBAC/permissions framework.
+- No row-level security anywhere -- tenant isolation is enforced entirely
+  in application code (`organization_id` checks on every query), not at
+  the database layer.
 
 ## Current state summary
 
 - `n8n_internal`: database-wide `CONNECT, CREATE, TEMPORARY` grant, owns
   schema `n8n`. Unchanged by decision (item 1).
-- `app_runtime` (new this session): owns schema `app` only, `CONNECT` on
-  the database, no database-level `CREATE`/`TEMPORARY`, no superuser
-  attributes. Used by `services/api` for both runtime queries and
-  migrations.
-- `app_rw`: still the bootstrap role, still a Postgres superuser. No
-  longer used by `services/api`. Item 2's remaining parts (migration-role
-  split, decide `app_rw`'s long-term shape) are open.
-- `app_audit_ro`: not created (item 3, open).
-- Analyst JWT layer (new, Sprint 3): placeholder HS256 signing, no IdP, no
-  user directory, no revocation (item 5, open).
+- `app_migrator` (new, Sprint 4): owns schema `app` and all its tables.
+  Alembic connects as this role; `services/api` never does.
+- `app_runtime`: DML-only as of Sprint 4 (no longer owns anything),
+  `CONNECT` on the database, no DDL rights. Used by `services/api` for
+  all runtime queries.
+- `app_rw`: still the bootstrap role, still a Postgres superuser, now
+  used only for init scripts.
+- `app_audit_ro` (new, Sprint 4): read-only, `audit_events` +
+  `case_history` only.
+- `keycloak_internal` (new, Sprint 4): owns schema `keycloak` on the same
+  Postgres container, mirroring the `n8n_internal`/`n8n` pattern.
+- Analyst identity (Sprint 3 → Sprint 4): real Keycloak-issued,
+  JWKS-validated OIDC tokens; organization/role no longer in the token at
+  all, looked up from `organization_memberships` instead. Item 6 above
+  tracks what's still open on top of this.
+- n8n service identity: still a static shared token (item 5, open), now
+  scoped to case-creation only.

@@ -227,6 +227,28 @@ roles/grants/volumes were touched.
 
 ---
 
+## 11. Sprint 4 — Identity, authorization, and audit infrastructure (done)
+
+Replaced Sprint 3's placeholder HS256 analyst JWT with real Keycloak OIDC
+(signature/issuer/audience/expiry validated via JWKS), added
+`users`/`organization_memberships` as the real source of tenant scoping
+(Keycloak carries pure identity only — no org/role claims at all), added
+CAS-062 validation of the target analyst against a real membership row,
+authorization-failure auditing, evidence content-hashing + access
+logging, and split Postgres roles into `app_migrator` (DDL/migrations)
+vs. `app_runtime` (DML-only, no longer owns anything) vs. `app_audit_ro`
+(read-only, audit tables only) — see
+[`docs/sprint-4-identity-and-authz.md`](docs/sprint-4-identity-and-authz.md)
+for the full design, several real bugs found and fixed along the way
+(issuer-string-vs-JWKS-fetch-address split, Keycloak hostname v2 config,
+an insert-ordering bug in the test fixtures), and an explicit "honest
+limits" section on what was and wasn't independently re-verified from a
+clean state. Neither the Postgres nor Redis container was recreated —
+every role/ownership change was tested on a disposable container first,
+then applied to the live one via direct SQL.
+
+---
+
 ## Immediate next action
 
 Start **§1 Repository bootstrap** followed by **§3 Sprint 1**. Everything else in this plan is sequenced after that vertical slice proves the architecture end-to-end.

@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# Creates a non-superuser runtime role for services/api, owning its own
-# "app" schema -- mirrors the n8n_internal/n8n isolation pattern. The
-# bootstrap role (POSTGRES_USER) remains superuser for image init and
-# migrations only; the running API must never connect as it.
-# Validated against a disposable Postgres container before being added here
-# -- see docs/pre-production-security-todo.md for the verification notes.
+# Creates a non-superuser runtime role for services/api. The bootstrap
+# role (POSTGRES_USER) remains superuser for image init/migrations only;
+# the running API must never connect as it.
+#
+# Sprint 4 change: this role no longer OWNS schema "app" -- ownership
+# moved to app_migrator (05-create-app-migrator-role.sh), which also
+# grants this role DML (not DDL) on it. On a fresh volume, run scripts in
+# numeric order (02 before 05) so this role exists before 05 grants it
+# anything. See docs/pre-production-security-todo.md item 2 and
+# docs/sprint-4-identity-and-authz.md for the verification notes.
 set -euo pipefail
 
 : "${POSTGRES_APP_RUNTIME_USER:?POSTGRES_APP_RUNTIME_USER must be set}"
@@ -19,10 +23,5 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
     END
     \$\$;
 
-    -- Deliberately NOT granted CREATE/TEMPORARY at the database level:
-    -- schema ownership below already gives this role everything it needs
-    -- to create/manage objects inside its own "app" schema, and nothing
-    -- outside it (verified: denied on "public" and on creating new schemas).
     GRANT CONNECT ON DATABASE "${POSTGRES_DB}" TO "${POSTGRES_APP_RUNTIME_USER}";
-    CREATE SCHEMA IF NOT EXISTS app AUTHORIZATION "${POSTGRES_APP_RUNTIME_USER}";
 EOSQL

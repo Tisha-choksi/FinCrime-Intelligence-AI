@@ -13,6 +13,12 @@ services:
       POSTGRES_N8N_PASSWORD: ${POSTGRES_N8N_PASSWORD:?set in .env}
       POSTGRES_APP_RUNTIME_USER: ${POSTGRES_APP_RUNTIME_USER:-app_runtime}
       POSTGRES_APP_RUNTIME_PASSWORD: ${POSTGRES_APP_RUNTIME_PASSWORD:?set in .env}
+      POSTGRES_KEYCLOAK_USER: ${POSTGRES_KEYCLOAK_USER:-keycloak_internal}
+      POSTGRES_KEYCLOAK_PASSWORD: ${POSTGRES_KEYCLOAK_PASSWORD:?set in .env}
+      POSTGRES_APP_MIGRATOR_USER: ${POSTGRES_APP_MIGRATOR_USER:-app_migrator}
+      POSTGRES_APP_MIGRATOR_PASSWORD: ${POSTGRES_APP_MIGRATOR_PASSWORD:?set in .env}
+      POSTGRES_APP_AUDIT_RO_USER: ${POSTGRES_APP_AUDIT_RO_USER:-app_audit_ro}
+      POSTGRES_APP_AUDIT_RO_PASSWORD: ${POSTGRES_APP_AUDIT_RO_PASSWORD:?set in .env}
     ports:
       - "127.0.0.1:${POSTGRES_HOST_PORT:-55432}:5432"
     volumes:
@@ -57,6 +63,31 @@ services:
       - ./n8n/workflows:/workflows:ro
       - ./n8n/subworkflows:/subworkflows:ro
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: "jdbc:postgresql://postgres:5432/${POSTGRES_DB:-fincrime}?currentSchema=keycloak"
+      KC_DB_USERNAME: ${POSTGRES_KEYCLOAK_USER:-keycloak_internal}
+      KC_DB_PASSWORD: ${POSTGRES_KEYCLOAK_PASSWORD:?set in .env}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?set in .env}
+      # Fixed so the issuer claim in tokens is stable regardless of which
+      # host:port a caller used to reach Keycloak (see .env.example).
+      KC_HOSTNAME: keycloak
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "127.0.0.1:${KEYCLOAK_HOST_PORT:-8080}:8080"
+    volumes:
+      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/fincrime-realm.json:ro
+
   api:
     build: ./services/api
     restart: unless-stopped
@@ -64,6 +95,8 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_started
+      keycloak:
         condition: service_started
     environment:
       POSTGRES_HOST: postgres
@@ -73,7 +106,8 @@ services:
       POSTGRES_APP_RUNTIME_PASSWORD: ${POSTGRES_APP_RUNTIME_PASSWORD:?set in .env}
       API_PORT: "8000"
       API_JWT_AUDIENCE: ${API_JWT_AUDIENCE:-fincrime-api}
-      API_JWT_SECRET: ${API_JWT_SECRET:?set in .env}
+      OIDC_ISSUER_URL: ${OIDC_ISSUER_URL:?set in .env}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-fincrime-api}
       N8N_API_SERVICE_TOKEN: ${N8N_API_SERVICE_TOKEN:?set in .env}
     ports:
       - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
